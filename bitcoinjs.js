@@ -16944,17 +16944,6 @@
   },{"./address":98,"./block":99,"./crypto":106,"./ecpair":107,"./networks":109,"./payments":111,"./psbt":119,"./script":120,"./transaction":144,"./transaction_builder":145,"bip32":29}],109:[function(require,module,exports){
   'use strict';
   Object.defineProperty(exports, '__esModule', { value: true });
-  exports.bitcoingold = {
-    messagePrefix: '\x18Bitcoin Gold Signed Message:\n',
-    bech32: 'btg',
-    bip32: {
-      public: 0x0488b21e,
-      private: 0x0488ade4,
-    },
-    pubKeyHash: 0x26,
-    scriptHash: 0x17,
-    wif: 0x80,
-  };
   exports.bitcoin = {
     messagePrefix: '\x18Bitcoin Signed Message:\n',
     bech32: 'bc',
@@ -17997,20 +17986,14 @@
   const payments = require('./payments');
   const bscript = require('./script');
   const transaction_1 = require('./transaction');
-  const BCH_SIGHASH_ALL =
+  const RVL_SIGHASH_ALL =
     transaction_1.Transaction.SIGHASH_ALL |
-    transaction_1.Transaction.SIGHASH_BITCOINCASHBIP143;
-  const BTG_SIGHASH_ALL =
-    transaction_1.Transaction.SIGHASH_ALL |
-    transaction_1.Transaction.SIGHASH_BITCOINCASHBIP143 |
-    (transaction_1.Transaction.FORKID_BTG << 8);
+    transaction_1.Transaction.SIGHASH_RAVENCOINLITE;
   const DEFAULT_SIGHASHES = [
     // BTC SIGHASH_ALL
     transaction_1.Transaction.SIGHASH_ALL,
-    // BCH SIGHASH_ALL
-    BCH_SIGHASH_ALL,
-    // BTG SIGHASH_ALL
-    BTG_SIGHASH_ALL,
+    // RVL SIGHASH_ALL
+    RVL_SIGHASH_ALL,
   ];
   /**
    * These are the default arguments for a Psbt instance.
@@ -18910,10 +18893,8 @@
   }
   function getDefaultSighash(forkCoin) {
     switch (forkCoin) {
-      case 'bch':
-        return BCH_SIGHASH_ALL;
-      case 'btg':
-        return BTG_SIGHASH_ALL;
+      case 'rvl':
+        return RVL_SIGHASH_ALL;
       case 'none':
         return transaction_1.Transaction.SIGHASH_ALL;
     }
@@ -18938,8 +18919,7 @@
     let hash;
     let prevout;
     const isForkId =
-      (sighashType & transaction_1.Transaction.SIGHASH_BITCOINCASHBIP143) > 0;
-    const isBTG = (sighashType & (transaction_1.Transaction.FORKID_BTG << 8)) > 0;
+      (sighashType & transaction_1.Transaction.SIGHASH_RAVENCOINLITE) > 0;
     if (input.nonWitnessUtxo) {
       const nonWitnessUtxoTx = nonWitnessUtxoTxFromCache(
         cache,
@@ -18969,42 +18949,22 @@
       input.witnessScript,
     );
     if (['p2sh-p2wsh', 'p2wsh'].indexOf(type) >= 0) {
-      if (isForkId && isBTG) {
-        hash = unsignedTx.hashForGoldSignature(
-          inputIndex,
-          meaningfulScript,
-          prevout.value,
-          sighashType,
-          true,
-        );
-      } else {
-        hash = unsignedTx.hashForWitnessV0(
-          inputIndex,
-          meaningfulScript,
-          prevout.value,
-          sighashType,
-        );
-      }
+      hash = unsignedTx.hashForWitnessV0(
+        inputIndex,
+        meaningfulScript,
+        prevout.value,
+        sighashType,
+      );
     } else if (isP2WPKH(meaningfulScript)) {
       // P2WPKH uses the P2PKH template for prevoutScript when signing
       const signingScript = payments.p2pkh({ hash: meaningfulScript.slice(2) })
         .output;
-      if (isForkId && isBTG) {
-        hash = unsignedTx.hashForGoldSignature(
-          inputIndex,
-          signingScript,
-          prevout.value,
-          sighashType,
-          true,
-        );
-      } else {
-        hash = unsignedTx.hashForWitnessV0(
-          inputIndex,
-          signingScript,
-          prevout.value,
-          sighashType,
-        );
-      }
+      hash = unsignedTx.hashForWitnessV0(
+        inputIndex,
+        signingScript,
+        prevout.value,
+        sighashType,
+      );
     } else {
       // non-segwit
       if (
@@ -19026,16 +18986,8 @@
             'BIP174 compliant.\n*********************\nPROCEED WITH CAUTION!\n' +
             '*********************',
         );
-      if (isForkId && isBTG) {
-        hash = unsignedTx.hashForGoldSignature(
-          inputIndex,
-          meaningfulScript,
-          prevout.value,
-          sighashType,
-          true,
-        );
-      } else if (isForkId) {
-        hash = unsignedTx.hashForCashSignature(
+      if (isForkId) {
+        hash = unsignedTx.hashForRVLSignature(
           inputIndex,
           meaningfulScript,
           prevout.value,
@@ -19205,15 +19157,9 @@
       sighashType & transaction_1.Transaction.SIGHASH_ANYONECANPAY
         ? 'SIGHASH_ANYONECANPAY | '
         : '';
-    if (sighashType & transaction_1.Transaction.SIGHASH_BITCOINCASHBIP143)
-      text += 'SIGHASH_BITCOINCASHBIP143 | ';
-    if (sighashType & (transaction_1.Transaction.FORKID_BTG << 8)) {
-      text += 'FORKID_BTG | ';
-    } else if (sighashType & (transaction_1.Transaction.FORKID_BCH)) {
-      text += 'FORKID_BCH | ';
-    } else {
-      text += 'FORKID_RVL | ';
-    }
+    if (sighashType & transaction_1.Transaction.SIGHASH_RAVENCOINLITE)
+      text += 'SIGHASH_RAVENCOINLITE | ';
+    text += 'FORKID_RVL | ';
     const sigMod = sighashType & 0x1f;
     switch (sigMod) {
       case transaction_1.Transaction.SIGHASH_ALL:
@@ -20464,41 +20410,9 @@
       return bcrypto.hash256(tbuffer);
     }
     /**
-     * Hash transaction for signing a specific input for Bitcoin Cash.
-     */
-    hashForCashSignature(inIndex, prevOutScript, inAmount, hashType) {
-      typeforce(
-        types.tuple(
-          types.UInt32,
-          types.Buffer,
-          /* types.UInt8 */ types.Number,
-          types.maybe(types.UInt53),
-        ),
-        arguments,
-      );
-      // This function works the way it does because Bitcoin Cash
-      // uses BIP143 as their replay protection, AND their algo
-      // includes `forkId | hashType`, AND since their forkId=0,
-      // this is a NOP, and has no difference to segwit. To support
-      // other forks, another parameter is required, and a new parameter
-      // would be required in the hashForWitnessV0 function, or
-      // it could be broken into two..
-      // BIP143 sighash activated in BitcoinCash via 0x40 bit
-      if (hashType & Transaction.SIGHASH_BITCOINCASHBIP143) {
-        if (types.Null(inAmount)) {
-          throw new Error(
-            'Bitcoin Cash sighash requires value of input to be signed.',
-          );
-        }
-        return this.hashForWitnessV0(inIndex, prevOutScript, inAmount, hashType);
-      } else {
-        return this.hashForSignature(inIndex, prevOutScript, hashType);
-      }
-    }
-    /**
      * Hash transaction for signing a specific input for Ravencoin Lite.
      */
-     hashForRVLSignature(inIndex, prevOutScript, inAmount, hashType) {
+    hashForRVLSignature(inIndex, prevOutScript, inAmount, hashType, sigVersion) {
       typeforce(
         types.tuple(
           types.UInt32,
@@ -20508,58 +20422,24 @@
         ),
         arguments,
       );
-      // This function works the way it does because Bitcoin Cash
-      // uses BIP143 as their replay protection, AND their algo
-      // includes `forkId | hashType`, AND since their forkId=0,
-      // this is a NOP, and has no difference to segwit. To support
-      // other forks, another parameter is required, and a new parameter
-      // would be required in the hashForWitnessV0 function, or
-      // it could be broken into two..
-      // BIP143 sighash activated in BitcoinCash via 0x40 bit
-      if (hashType & Transaction.SIGHASH_FORKID) {
-        if (types.Null(inAmount)) {
-          throw new Error(
-            'Ravencoin Lite sighash requires value of input to be signed.',
-          );
-        }
-        return this.hashForWitnessV0(inIndex, prevOutScript, inAmount, hashType);
-      } else {
-        return this.hashForSignature(inIndex, prevOutScript, hashType);
-      }
-    }
-    /**
-     * Hash transaction for signing a specific input for Bitcoin Gold.
-     */
-    hashForGoldSignature(inIndex, prevOutScript, inAmount, hashType, sigVersion) {
-      typeforce(
-        types.tuple(
-          types.UInt32,
-          types.Buffer,
-          /* types.UInt8 */ types.Number,
-          types.maybe(types.UInt53),
-        ),
-        arguments,
-      );
-      // Bitcoin Gold also implements segregated witness
+      // Ravencoin Lite also implements segregated witness
       // therefore we can pull out the setting of nForkHashType
       // and pass it into the functions.
       let nForkHashType = hashType;
-      const fUseForkId = (hashType & Transaction.SIGHASH_BITCOINCASHBIP143) > 0;
-      if (fUseForkId) {
-        nForkHashType |= Transaction.FORKID_BTG << 8;
-      }
-      // BIP143 sighash activated in BitcoinCash via 0x40 bit
+      const fUseForkId = (hashType & Transaction.SIGHASH_RAVENCOINLITE) > 0;
+
+      // BIP143 sighash activated in Ravencoin Lite via 0x40 bit
       if (sigVersion || fUseForkId) {
         if (types.Null(inAmount)) {
           throw new Error(
-            'Bitcoin Cash sighash requires value of input to be signed.',
+            'Ravencoin Lite sighash requires value of input to be signed.',
           );
         }
         return this.hashForWitnessV0(
           inIndex,
           prevOutScript,
           inAmount,
-          nForkHashType,
+          hashType,
         );
       } else {
         return this.hashForSignature(inIndex, prevOutScript, nForkHashType);
@@ -20637,8 +20517,6 @@
   Transaction.SIGHASH_RAVENCOINLITE = 0x40;
   Transaction.ADVANCED_TRANSACTION_MARKER = 0x00;
   Transaction.ADVANCED_TRANSACTION_FLAG = 0x01;
-  Transaction.FORKID_BTG = 0x4f; // 79
-  Transaction.FORKID_BCH = 0x00;
   Transaction.FORKID_RVL = 0x64;
   exports.Transaction = Transaction;
   
@@ -20701,8 +20579,6 @@
       this.maximumFeeRate = maximumFeeRate;
       this.__PREV_TX_SET = {};
       this.__INPUTS = [];
-      this.__BITCOINCASH = false;
-      this.__BITCOINGOLD = false;
       this.__RAVENCOINLITE = false;
       this.__TX = new transaction_1.Transaction();
       this.__TX.version = 2;
@@ -20718,11 +20594,7 @@
     static fromTransaction(transaction, network, forkId) {
       const txb = new TransactionBuilder(network);
       if (typeof forkId === 'number') {
-        if (forkId === transaction_1.Transaction.FORKID_BTG) {
-          txb.enableBitcoinGold(true);
-        } else if (forkId === transaction_1.Transaction.FORKID_BCH) {
-          txb.enableBitcoinCash(true);
-        } else if (forkId === transaction_1.Transaction.FORKID_RVL) {
+        if (forkId === transaction_1.Transaction.FORKID_RVL) {
           txb.enableRavencoinLite(true);
         }
       }
@@ -20748,23 +20620,11 @@
       });
       return txb;
     }
-    enableBitcoinCash(enable) {
-      if (typeof enable === 'undefined') {
-        enable = true;
-      }
-      this.__BITCOINCASH = enable;
-    }
     enableRavencoinLite(enable) {
       if (typeof enable === 'undefined') {
         enable = true;
       }
       this.__RAVENCOINLITE = enable;
-    }
-    enableBitcoinGold(enable) {
-      if (typeof enable === 'undefined') {
-        enable = true;
-      }
-      this.__BITCOINGOLD = enable;
     }
     setLowR(setting) {
       typeforce(typeforce.maybe(typeforce.Boolean), setting);
@@ -20846,8 +20706,6 @@
           this.__TX,
           signParams,
           {
-            btg: this.__BITCOINGOLD,
-            bch: this.__BITCOINCASH,
             raven: this.__RAVENCOINLITE,
           },
           keyPair,
@@ -21121,46 +20979,30 @@
         const parsed = bscript.signature.decode(signature);
         let hash;
         switch (forkId) {
-          case transaction_1.Transaction.FORKID_BCH:
-            hash = transaction.hashForCashSignature(
+          case transaction_1.Transaction.FORKID_RVL:
+            hash = transaction.hashForRVLSignature(
               vin,
               input.redeemScript,
               value,
               parsed.hashType,
             );
             break;
-          case transaction_1.Transaction.FORKID_BTG:
-            hash = transaction.hashForGoldSignature(
+          default:
+          if (input.witness) {
+            hash = transaction.hashForWitnessV0(
               vin,
               input.redeemScript,
               value,
               parsed.hashType,
             );
-            break;
-            case transaction_1.Transaction.FORKID_RVL:
-              hash = transaction.hashForRVLSignature(
-                vin,
-                input.redeemScript,
-                value,
-                parsed.hashType,
-              );
-              break;
-            default:
-            if (input.witness) {
-              hash = transaction.hashForWitnessV0(
-                vin,
-                input.redeemScript,
-                value,
-                parsed.hashType,
-              );
-            } else {
-              hash = transaction.hashForSignature(
-                vin,
-                input.redeemScript,
-                parsed.hashType,
-              );
-            }
-            break;
+          } else {
+            hash = transaction.hashForSignature(
+              vin,
+              input.redeemScript,
+              parsed.hashType,
+            );
+          }
+          break;
         }
         // skip if signature does not match pubKey
         if (!keyPair.verify(hash, parsed.signature)) return false;
@@ -21766,22 +21608,7 @@
     }
     // ready to sign
     let signatureHash;
-    if (forkBools.btg) {
-      signatureHash = tx.hashForGoldSignature(
-        vin,
-        input.signScript,
-        input.value,
-        hashType,
-        !!input.witness,
-      );
-    } else if (forkBools.bch) {
-      signatureHash = tx.hashForCashSignature(
-        vin,
-        input.signScript,
-        input.value,
-        hashType,
-      );
-    } else if (forkBools.rvl) {
+    if (forkBools.rvl) {
       signatureHash = tx.hashForRVLSignature(
         vin,
         input.signScript,
