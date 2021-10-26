@@ -1079,7 +1079,6 @@
 						var index = data.result[i].index
 						value += data.result[i].value
 
-						console.log(data.result[i].script)
 						var script = bitcoinjs.Buffer(data.result[i].script, 'hex')
 						var type = getScriptType(script)
 						
